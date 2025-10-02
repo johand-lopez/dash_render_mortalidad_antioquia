@@ -1,0 +1,8 @@
+dash
+plotly
+pandas
+geopandas
+folium
+dash-leaflet
+shapely
+gunicorn

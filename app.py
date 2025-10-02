@@ -24,6 +24,9 @@ dataset_shapefile = gpd.read_file(ruta_shapefile)
 dataset_shapefile = dataset_shapefile[dataset_shapefile["DPTO_CCDGO"] == "05"]
 dataset_shapefile = dataset_shapefile[["MPIO_CDPMP", "MPIO_CNMBR", "geometry"]].to_crs(epsg=4326)
 
+# Arreglar geometrías inválidas
+dataset_shapefile["geometry"] = dataset_shapefile["geometry"].buffer(0)
+
 dataset_final = dataset[["NombreMunicipio", "CodigoMunicipio", "NombreRegion", "Año", "NumeroCasos", "TasaXMilHabitantes"]]
 dataset_final.loc[:, "CodigoMunicipio"] = dataset_final["CodigoMunicipio"].astype(str)
 dataset_shapefile["MPIO_CDPMP"] = dataset_shapefile["MPIO_CDPMP"].astype(str)
@@ -133,7 +136,7 @@ def update_summary(_):
     Input("anio_tasa", "value")
 )
 def update_mapa_tasa(anio):
-    df = dataset_shapefile
+    df = dataset_shapefile.copy()
     geojson = json.loads(df.to_json())
     return dl.Map(
         children=[
@@ -156,7 +159,7 @@ def update_mapa_tasa(anio):
     Input("anio_casos", "value")
 )
 def update_mapa_casos(anio):
-    df = dataset_shapefile
+    df = dataset_shapefile.copy()
     geojson = json.loads(df.to_json())
     return dl.Map(
         children=[
@@ -178,5 +181,3 @@ def update_mapa_casos(anio):
 # =============================
 if __name__ == "__main__":
     app.run_server(debug=True, host="0.0.0.0", port=8050)
-
-

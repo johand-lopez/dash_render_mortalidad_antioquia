@@ -24,7 +24,7 @@ dataset_shapefile = dataset_shapefile[dataset_shapefile["DPTO_CCDGO"] == "05"]
 dataset_shapefile = dataset_shapefile[["MPIO_CDPMP", "MPIO_CNMBR", "geometry"]].to_crs(epsg=4326)
 
 dataset_final = dataset[["NombreMunicipio", "CodigoMunicipio", "NombreRegion", "Año", "NumeroCasos", "TasaXMilHabitantes"]]
-dataset_final.loc[:, "CodigoMunicipio"] = dataset_final["CodigoMunicipio"].astype(str)
+dataset_final["CodigoMunicipio"] = dataset_final["CodigoMunicipio"].astype(str)
 dataset_shapefile["MPIO_CDPMP"] = dataset_shapefile["MPIO_CDPMP"].astype(str)
 
 df_merge = dataset_shapefile.merge(dataset_final, left_on="MPIO_CDPMP", right_on="CodigoMunicipio")
@@ -157,8 +157,7 @@ def update_summary(_):
             df.append({"Variable": col, "Estadistico": k, "Valor": round(v, 2)})
     return df
 
-
-# ---- Mapa Tasa ----
+# ---- Mapas ----
 @app.callback(
     Output("mapa_tasa", "children"),
     Input("anio_tasa", "value")
@@ -173,38 +172,15 @@ def update_mapa_tasa(anio):
 
     geojson = json.loads(df.to_json())
 
-    def style_function(feature):
-        value = feature["properties"]["TasaXMilHabitantes"]
-        idx = int((value - df["TasaXMilHabitantes"].min()) /
-                  (df["TasaXMilHabitantes"].max() - df["TasaXMilHabitantes"].min()) * 8)
-        idx = max(0, min(idx, 8))
-        return {"fillColor": px.colors.sequential.OrRd[idx],
-                "color": "black", "weight": 1, "fillOpacity": 0.7}
-
     return dl.Map(
         children=[
             dl.TileLayer(),
-            dl.GeoJSON(
-                data=geojson,
-                id="geojson_tasa",
-                zoomToBounds=True,
-                options=dict(style=style_function),
-                children=[
-                    dl.Tooltip(f"{f['properties']['NombreMunicipio']}: "
-                               f"{round(f['properties']['TasaXMilHabitantes'], 2)}")
-                    for f in geojson["features"]
-                ]
-            ),
-            dl.Colorbar(colorscale=px.colors.sequential.OrRd, width=20, height=150,
-                        min=df["TasaXMilHabitantes"].min(), max=df["TasaXMilHabitantes"].max(),
-                        unit="Tasa x mil")
+            dl.GeoJSON(data=geojson, id="geojson_tasa", zoomToBounds=True)
         ],
         style={"width": "100%", "height": "600px"},
         center=[6.5, -75.5], zoom=7
     )
 
-
-# ---- Mapa Casos ----
 @app.callback(
     Output("mapa_casos", "children"),
     Input("anio_casos", "value")
@@ -219,36 +195,14 @@ def update_mapa_casos(anio):
 
     geojson = json.loads(df.to_json())
 
-    def style_function(feature):
-        value = feature["properties"]["NumeroCasos"]
-        idx = int((value - df["NumeroCasos"].min()) /
-                  (df["NumeroCasos"].max() - df["NumeroCasos"].min()) * 8)
-        idx = max(0, min(idx, 8))
-        return {"fillColor": px.colors.sequential.Blues[idx],
-                "color": "black", "weight": 1, "fillOpacity": 0.7}
-
     return dl.Map(
         children=[
             dl.TileLayer(),
-            dl.GeoJSON(
-                data=geojson,
-                id="geojson_casos",
-                zoomToBounds=True,
-                options=dict(style=style_function),
-                children=[
-                    dl.Tooltip(f"{f['properties']['NombreMunicipio']}: "
-                               f"{int(f['properties']['NumeroCasos'])}")
-                    for f in geojson["features"]
-                ]
-            ),
-            dl.Colorbar(colorscale=px.colors.sequential.Blues, width=20, height=150,
-                        min=df["NumeroCasos"].min(), max=df["NumeroCasos"].max(),
-                        unit="Defunciones")
+            dl.GeoJSON(data=geojson, id="geojson_casos", zoomToBounds=True)
         ],
         style={"width": "100%", "height": "600px"},
         center=[6.5, -75.5], zoom=7
     )
-
 
 # ---- Gráficos Tasa ----
 @app.callback(
@@ -261,7 +215,6 @@ def plot_top10_tasa_alta(anio):
     return px.bar(df, x="TasaXMilHabitantes", y="NombreMunicipio", orientation="h",
                   title="Top 10 municipios con mayor tasa de mortalidad", color="TasaXMilHabitantes")
 
-
 @app.callback(
     Output("plot_top10_tasa_baja", "figure"),
     Input("anio_top_tasa_baja", "value")
@@ -271,7 +224,6 @@ def plot_top10_tasa_baja(anio):
     df = df.groupby("NombreMunicipio")["TasaXMilHabitantes"].mean().nsmallest(10).reset_index()
     return px.bar(df, x="TasaXMilHabitantes", y="NombreMunicipio", orientation="h",
                   title="Top 10 municipios con menor tasa de mortalidad", color="TasaXMilHabitantes")
-
 
 # ---- Gráficos Casos ----
 @app.callback(
@@ -284,7 +236,6 @@ def plot_top10_casos_alto(anio):
     return px.bar(df, x="NumeroCasos", y="NombreMunicipio", orientation="h",
                   title="Top 10 municipios con mayor número de defunciones", color="NumeroCasos")
 
-
 @app.callback(
     Output("plot_top10_casos_bajo", "figure"),
     Input("anio_top_casos_bajo", "value")
@@ -295,9 +246,9 @@ def plot_top10_casos_bajo(anio):
     return px.bar(df, x="NumeroCasos", y="NombreMunicipio", orientation="h",
                   title="Top 10 municipios con menor número de defunciones", color="NumeroCasos")
 
-
 # =============================
 #   Lanzar app
 # =============================
 if __name__ == "__main__":
     app.run_server(debug=True, host="0.0.0.0", port=8050)
+

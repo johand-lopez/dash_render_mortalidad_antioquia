@@ -4,5 +4,7 @@ dash-leaflet
 pandas
 geopandas
 shapely
+matplotlib
 plotly
 gunicorn
+branca

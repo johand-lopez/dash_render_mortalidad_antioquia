@@ -1,9 +1,11 @@
 import dash
 from dash import dcc, html, Input, Output, dash_table
 import dash_leaflet as dl
+import dash_leaflet.express as dlx
 import pandas as pd
 import geopandas as gpd
 import plotly.express as px
+import json
 import branca.colormap as cm
 
 # =============================
@@ -83,50 +85,22 @@ app.layout = html.Div([
 
         # ----- Tasa -----
         dcc.Tab(label="Tasa de mortalidad", children=[
-            dcc.Tabs([
-                dcc.Tab(label="Mapa interactivo", children=[
-                    html.Label("Seleccione un año:"),
-                    dcc.Dropdown(id="anio_tasa", options=[{"label": i, "value": i} for i in lista_anios],
-                                 value="Todos los años"),
-                    html.Div(id="mapa_tasa")
-                ]),
-                dcc.Tab(label="Top 10 más altos", children=[
-                    html.Label("Seleccione un año:"),
-                    dcc.Dropdown(id="anio_top_tasa_alta", options=[{"label": i, "value": i} for i in lista_anios],
-                                 value="Todos los años"),
-                    dcc.Graph(id="plot_top10_tasa_alta")
-                ]),
-                dcc.Tab(label="Top 10 más bajos", children=[
-                    html.Label("Seleccione un año:"),
-                    dcc.Dropdown(id="anio_top_tasa_baja", options=[{"label": i, "value": i} for i in lista_anios],
-                                 value="Todos los años"),
-                    dcc.Graph(id="plot_top10_tasa_baja")
-                ])
-            ])
+            html.Label("Seleccione un año:"),
+            dcc.Dropdown(id="anio_tasa", options=[{"label": i, "value": i} for i in lista_anios],
+                         value="Todos los años"),
+            html.Div(id="mapa_tasa"),
+            dcc.Graph(id="plot_top10_tasa_alta"),
+            dcc.Graph(id="plot_top10_tasa_baja")
         ]),
 
         # ----- Defunciones -----
         dcc.Tab(label="Número de defunciones", children=[
-            dcc.Tabs([
-                dcc.Tab(label="Mapa interactivo", children=[
-                    html.Label("Seleccione un año:"),
-                    dcc.Dropdown(id="anio_casos", options=[{"label": i, "value": i} for i in lista_anios],
-                                 value="Todos los años"),
-                    html.Div(id="mapa_casos")
-                ]),
-                dcc.Tab(label="Top 10 más altos", children=[
-                    html.Label("Seleccione un año:"),
-                    dcc.Dropdown(id="anio_top_casos_alto", options=[{"label": i, "value": i} for i in lista_anios],
-                                 value="Todos los años"),
-                    dcc.Graph(id="plot_top10_casos_alto")
-                ]),
-                dcc.Tab(label="Top 10 más bajos", children=[
-                    html.Label("Seleccione un año:"),
-                    dcc.Dropdown(id="anio_top_casos_bajo", options=[{"label": i, "value": i} for i in lista_anios],
-                                 value="Todos los años"),
-                    dcc.Graph(id="plot_top10_casos_bajo")
-                ])
-            ])
+            html.Label("Seleccione un año:"),
+            dcc.Dropdown(id="anio_casos", options=[{"label": i, "value": i} for i in lista_anios],
+                         value="Todos los años"),
+            html.Div(id="mapa_casos"),
+            dcc.Graph(id="plot_top10_casos_alto"),
+            dcc.Graph(id="plot_top10_casos_bajo")
         ])
     ])
 ])
@@ -170,27 +144,33 @@ def update_mapa_tasa(anio):
     else:
         df = df_merge[df_merge["Año"] == anio]
 
-    geojson = df.to_json()  # ✅ usar directamente
+    geojson = json.loads(df.to_json(driver="GeoJSON"))
 
-    colormap = cm.linear.YlOrRd_09.scale(df["TasaXMilHabitantes"].min(), df["TasaXMilHabitantes"].max())
+    colormap = cm.linear.Reds_09.scale(df["TasaXMilHabitantes"].min(), df["TasaXMilHabitantes"].max())
+    colormap.caption = "Tasa por mil habitantes"
 
-    return dl.Map(
-        children=[
-            dl.TileLayer(),
-            dl.Choropleth(
-                id="choropleth_tasa",
-                data=geojson,
-                value="TasaXMilHabitantes",
-                colorScale=colormap.colors,
-                style={"fillOpacity": 0.7, "weight": 0.5},
-                hoverStyle={"color": "black", "weight": 2, "dashArray": "5, 5"},
-            ),
-            dl.Colorbar(colorscale=colormap.colors, width=20, height=150, position="bottomright")
-        ],
-        style={"width": "100%", "height": "600px"},
-        center=[6.5, -75.5], zoom=7
-    )
-
+    return html.Div([
+        dl.Map(
+            children=[
+                dl.TileLayer(),
+                dl.Choropleth(
+                    data=geojson,
+                    id="choropleth_tasa",
+                    colorProp="TasaXMilHabitantes",
+                    colorscale=colormap.colors,
+                    bins=8,
+                    opacity=0.8,
+                    weight=1,
+                    fillOpacity=0.7,
+                    zoomToBounds=True,
+                    zoomToBoundsOnClick=True
+                )
+            ],
+            style={"width": "100%", "height": "600px"},
+            center=[6.5, -75.5], zoom=7
+        ),
+        html.Div(colormap.to_step(index=True).render(), style={"width": "50%", "margin": "auto"})
+    ])
 
 @app.callback(
     Output("mapa_casos", "children"),
@@ -204,31 +184,38 @@ def update_mapa_casos(anio):
     else:
         df = df_merge[df_merge["Año"] == anio]
 
-    geojson = df.to_json()  # ✅ usar directamente
+    geojson = json.loads(df.to_json(driver="GeoJSON"))
 
     colormap = cm.linear.Blues_09.scale(df["NumeroCasos"].min(), df["NumeroCasos"].max())
+    colormap.caption = "Número de defunciones"
 
-    return dl.Map(
-        children=[
-            dl.TileLayer(),
-            dl.Choropleth(
-                id="choropleth_casos",
-                data=geojson,
-                value="NumeroCasos",
-                colorScale=colormap.colors,
-                style={"fillOpacity": 0.7, "weight": 0.5},
-                hoverStyle={"color": "black", "weight": 2, "dashArray": "5, 5"},
-            ),
-            dl.Colorbar(colorscale=colormap.colors, width=20, height=150, position="bottomright")
-        ],
-        style={"width": "100%", "height": "600px"},
-        center=[6.5, -75.5], zoom=7
-    )
+    return html.Div([
+        dl.Map(
+            children=[
+                dl.TileLayer(),
+                dl.Choropleth(
+                    data=geojson,
+                    id="choropleth_casos",
+                    colorProp="NumeroCasos",
+                    colorscale=colormap.colors,
+                    bins=8,
+                    opacity=0.8,
+                    weight=1,
+                    fillOpacity=0.7,
+                    zoomToBounds=True,
+                    zoomToBoundsOnClick=True
+                )
+            ],
+            style={"width": "100%", "height": "600px"},
+            center=[6.5, -75.5], zoom=7
+        ),
+        html.Div(colormap.to_step(index=True).render(), style={"width": "50%", "margin": "auto"})
+    ])
 
 # ---- Gráficos Tasa ----
 @app.callback(
     Output("plot_top10_tasa_alta", "figure"),
-    Input("anio_top_tasa_alta", "value")
+    Input("anio_tasa", "value")
 )
 def plot_top10_tasa_alta(anio):
     df = df_merge if anio == "Todos los años" else df_merge[df_merge["Año"] == anio]
@@ -238,7 +225,7 @@ def plot_top10_tasa_alta(anio):
 
 @app.callback(
     Output("plot_top10_tasa_baja", "figure"),
-    Input("anio_top_tasa_baja", "value")
+    Input("anio_tasa", "value")
 )
 def plot_top10_tasa_baja(anio):
     df = df_merge if anio == "Todos los años" else df_merge[df_merge["Año"] == anio]
@@ -249,7 +236,7 @@ def plot_top10_tasa_baja(anio):
 # ---- Gráficos Casos ----
 @app.callback(
     Output("plot_top10_casos_alto", "figure"),
-    Input("anio_top_casos_alto", "value")
+    Input("anio_casos", "value")
 )
 def plot_top10_casos_alto(anio):
     df = df_merge if anio == "Todos los años" else df_merge[df_merge["Año"] == anio]
@@ -259,7 +246,7 @@ def plot_top10_casos_alto(anio):
 
 @app.callback(
     Output("plot_top10_casos_bajo", "figure"),
-    Input("anio_top_casos_bajo", "value")
+    Input("anio_casos", "value")
 )
 def plot_top10_casos_bajo(anio):
     df = df_merge if anio == "Todos los años" else df_merge[df_merge["Año"] == anio]
@@ -272,3 +259,4 @@ def plot_top10_casos_bajo(anio):
 # =============================
 if __name__ == "__main__":
     app.run_server(debug=True, host="0.0.0.0", port=8050)
+

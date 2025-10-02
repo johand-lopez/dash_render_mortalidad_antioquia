@@ -1,145 +1,188 @@
 import dash
-from dash import Dash, dcc, html, dash_table, Input, Output
-import dash_bootstrap_components as dbc
+from dash import dcc, html, Input, Output, dash_table
 import dash_leaflet as dl
 import dash_leaflet.express as dlx
 import branca.colormap as cm
 import pandas as pd
 import geopandas as gpd
-from dash.exceptions import PreventUpdate
+import plotly.express as px
+import json
+
+# 1. Lectura de datos
+ruta_dataset = "data/Mortalidad_General_en_el_departamento_de_Antioquia_desde_2005_20250915.csv"
+ruta_shapefile = "data/MGN_MPIO_POLITICO.shp"
+
+dataset = pd.read_csv(
+    ruta_dataset,
+    dtype={"CodigoMunicipio": str}
+)
+
+dataset_shapefile = gpd.read_file(ruta_shapefile)
+dataset_shapefile = dataset_shapefile[dataset_shapefile["DPTO_CCDGO"] == "05"]
+dataset_shapefile = dataset_shapefile[["MPIO_CDPMP", "MPIO_CNMBR", "geometry"]].to_crs(epsg=4326)
+
+dataset_final = dataset[["NombreMunicipio", "CodigoMunicipio", "NombreRegion", "Año", "NumeroCasos", "TasaXMilHabitantes"]]
+dataset_final["CodigoMunicipio"] = dataset_final["CodigoMunicipio"].astype(str)
+dataset_shapefile["MPIO_CDPMP"] = dataset_shapefile["MPIO_CDPMP"].astype(str)
+
+df_merge = dataset_shapefile.merge(dataset_final, left_on="MPIO_CDPMP", right_on="CodigoMunicipio")
+
+lista_anios = ["Todos los años"] + sorted(df_merge["Año"].unique().tolist())
 
 # =============================
-#   Mortalidad en Antioquia – Dash
-#   Autor: Johan David Díaz López
-#   Fuente: Datos Abiertos de Colombia
+#   App Dash
 # =============================
-
-# Cargar datos
-df_final = gpd.read_file("data/df_final.geojson")  # <-- asegúrate que el archivo esté en /data
-df_final["Anio"] = df_final["Anio"].astype(int)
-
-# Iniciar app
-app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
+app = dash.Dash(__name__)
 server = app.server
 
-# --------------------------
-# Layout
-# --------------------------
-app.layout = dbc.Container([
-    html.H1("Mortalidad en Antioquia", style={"textAlign": "center"}),
-    dcc.Tabs(id="tabs", value="contexto", children=[
-        dcc.Tab(label="Contexto", value="contexto"),
-        dcc.Tab(label="Tabla de Datos", value="tabla"),
-        dcc.Tab(label="Estadísticas descriptivas", value="estadisticas"),
-        dcc.Tab(label="Tasa de mortalidad", value="tasa"),
-        dcc.Tab(label="Número de defunciones", value="defunciones"),
-    ]),
-    html.Div(id="tabs-content")
-], fluid=True)
+app.layout = html.Div([
+    dcc.Tabs([
 
+        # ----- Contexto -----
+        dcc.Tab(label="Contexto", children=[
+            html.H2("Contexto del proyecto"),
+            html.P("Este proyecto realiza un análisis georreferenciado de la mortalidad en Antioquia, "
+                   "a partir de registros municipales de defunciones entre 2005 y 2021."),
+            html.H3("Objetivo del análisis"),
+            html.Ul([
+                html.Li("Visualizar la distribución espacial de la mortalidad."),
+                html.Li("Identificar patrones territoriales de salud y acceso a servicios."),
+                html.Li("Generar mapas coropléticos y gráficas para facilitar la comprensión.")
+            ]),
+            html.H3("Fuente del dataset"),
+            html.A("Datos Abiertos de Colombia",
+                   href="https://www.datos.gov.co/Salud-y-Protecci-n-Social/Mortalidad-General-en-el-departamento-de-Antioquia/fuc4-tvui/about_data",
+                   target="_blank"),
+            html.H5("Autor: Johan David Diaz Lopez")
+        ]),
 
-# --------------------------
-# Callbacks
-# --------------------------
-@app.callback(Output("tabs-content", "children"),
-              Input("tabs", "value"))
-def render_content(tab):
-    if tab == "contexto":
-        return html.Div([
-            html.H4("Contexto"),
-            html.P("Este tablero muestra estadísticas de mortalidad en los municipios de Antioquia, "
-                   "incluyendo tasas por mil habitantes y número de defunciones totales. "
-                   "Los datos provienen del portal oficial de Datos Abiertos de Colombia.")
-        ])
-
-    elif tab == "tabla":
-        return html.Div([
-            html.H4("Tabla de Datos"),
+        # ----- Tabla de Datos -----
+        dcc.Tab(label="Tabla de Datos", children=[
             dash_table.DataTable(
-                data=df_final.head(20).to_dict("records"),
-                columns=[{"name": i, "id": i} for i in df_final.columns],
-                page_size=10,
-                style_table={"overflowX": "auto"}
+                id="tabla_merge",
+                data=df_merge.drop(columns="geometry").to_dict("records"),
+                columns=[{"name": i, "id": i} for i in df_merge.drop(columns="geometry").columns],
+                page_size=15,
+                style_table={"overflowX": "auto"},
             )
+        ]),
+
+        # ----- Estadísticas -----
+        dcc.Tab(label="Estadísticas descriptivas", children=[
+            dash_table.DataTable(
+                id="tabla_summary",
+                columns=[{"name": "Variable", "id": "Variable"},
+                         {"name": "Estadístico", "id": "Estadistico"},
+                         {"name": "Valor", "id": "Valor"}],
+                style_table={"overflowX": "auto"},
+                style_cell={"fontSize": 12}
+            )
+        ]),
+
+        # ----- Tasa -----
+        dcc.Tab(label="Tasa de mortalidad", children=[
+            dcc.Tabs([
+                dcc.Tab(label="Mapa interactivo", children=[
+                    html.Label("Seleccione un año:"),
+                    dcc.Dropdown(id="anio_tasa", options=[{"label": i, "value": i} for i in lista_anios],
+                                 value="Todos los años"),
+                    html.Div(id="mapa_tasa")
+                ]),
+                dcc.Tab(label="Top 10 más altos", children=[
+                    html.Label("Seleccione un año:"),
+                    dcc.Dropdown(id="anio_top_tasa_alta", options=[{"label": i, "value": i} for i in lista_anios],
+                                 value="Todos los años"),
+                    dcc.Graph(id="plot_top10_tasa_alta")
+                ]),
+                dcc.Tab(label="Top 10 más bajos", children=[
+                    html.Label("Seleccione un año:"),
+                    dcc.Dropdown(id="anio_top_tasa_baja", options=[{"label": i, "value": i} for i in lista_anios],
+                                 value="Todos los años"),
+                    dcc.Graph(id="plot_top10_tasa_baja")
+                ])
+            ])
+        ]),
+
+        # ----- Defunciones -----
+        dcc.Tab(label="Número de defunciones", children=[
+            dcc.Tabs([
+                dcc.Tab(label="Mapa interactivo", children=[
+                    html.Label("Seleccione un año:"),
+                    dcc.Dropdown(id="anio_casos", options=[{"label": i, "value": i} for i in lista_anios],
+                                 value="Todos los años"),
+                    html.Div(id="mapa_casos")
+                ]),
+                dcc.Tab(label="Top 10 más altos", children=[
+                    html.Label("Seleccione un año:"),
+                    dcc.Dropdown(id="anio_top_casos_alto", options=[{"label": i, "value": i} for i in lista_anios],
+                                 value="Todos los años"),
+                    dcc.Graph(id="plot_top10_casos_alto")
+                ]),
+                dcc.Tab(label="Top 10 más bajos", children=[
+                    html.Label("Seleccione un año:"),
+                    dcc.Dropdown(id="anio_top_casos_bajo", options=[{"label": i, "value": i} for i in lista_anios],
+                                 value="Todos los años"),
+                    dcc.Graph(id="plot_top10_casos_bajo")
+                ])
+            ])
         ])
+    ])
+])
 
-    elif tab == "estadisticas":
-        return html.Div([
-            html.H4("Estadísticas descriptivas"),
-            html.Pre(df_final.describe().to_string())
-        ])
+# =============================
+#   Callbacks
+# =============================
 
-    elif tab == "tasa":
-        return html.Div([
-            dcc.Tabs(id="tabs-tasa", value="mapa-tasa", children=[
-                dcc.Tab(label="Mapa interactivo", value="mapa-tasa"),
-                dcc.Tab(label="Top 10 más altos", value="top-altos"),
-                dcc.Tab(label="Top 10 más bajos", value="top-bajos"),
-            ]),
-            html.Div(id="content-tasa")
-        ])
+@app.callback(
+    Output("tabla_summary", "data"),
+    Input("tabla_summary", "id")
+)
+def update_summary(_):
+    def resumen(x):
+        return {
+            "Mínimo": x.min(),
+            "1er Cuartil": x.quantile(0.25),
+            "Mediana": x.median(),
+            "Media": x.mean(),
+            "3er Cuartil": x.quantile(0.75),
+            "Máximo": x.max()
+        }
 
-    elif tab == "defunciones":
-        return html.Div([
-            dcc.Tabs(id="tabs-casos", value="mapa-casos", children=[
-                dcc.Tab(label="Mapa interactivo", value="mapa-casos"),
-                dcc.Tab(label="Top 10 más altos", value="top-altos-casos"),
-                dcc.Tab(label="Top 10 más bajos", value="top-bajos-casos"),
-            ]),
-            html.Div(id="content-casos")
-        ])
-
-
-# --------------------------
-# Callbacks Tasa Mortalidad
-# --------------------------
-@app.callback(Output("content-tasa", "children"),
-              Input("tabs-tasa", "value"))
-def render_tasa(tab):
-    if tab == "mapa-tasa":
-        return html.Div([
-            html.Label("Seleccione un año:"),
-            dcc.Dropdown(
-                id="anio-tasa",
-                options=[{"label": str(a), "value": a} for a in sorted(df_final["Anio"].unique())] +
-                        [{"label": "Todos los años", "value": "all"}],
-                value="all"
-            ),
-            html.Div(id="mapa-tasa")
-        ])
-    elif tab == "top-altos":
-        top = df_final.groupby("NombreMunicipio")["TasaMortalidad"].mean().nlargest(10).reset_index()
-        return dash_table.DataTable(data=top.to_dict("records"), columns=[{"name": i, "id": i} for i in top.columns])
-    elif tab == "top-bajos":
-        bottom = df_final.groupby("NombreMunicipio")["TasaMortalidad"].mean().nsmallest(10).reset_index()
-        return dash_table.DataTable(data=bottom.to_dict("records"), columns=[{"name": i, "id": i} for i in bottom.columns])
+    df = []
+    for col in ["NumeroCasos", "TasaXMilHabitantes"]:
+        stats = resumen(df_merge[col])
+        for k, v in stats.items():
+            df.append({"Variable": col, "Estadistico": k, "Valor": round(v, 2)})
+    return df
 
 
-@app.callback(Output("mapa-tasa", "children"),
-              Input("anio-tasa", "value"))
+# ---- Mapas ----
+@app.callback(
+    Output("mapa_tasa", "children"),
+    Input("anio_tasa", "value")
+)
 def update_mapa_tasa(anio):
-    if anio is None:
-        raise PreventUpdate
-
-    if anio == "all":
-        df = df_final.copy()
+    if anio == "Todos los años":
+        df = df_merge.groupby(["NombreMunicipio", "CodigoMunicipio", "NombreRegion", "geometry"]).agg({
+            "TasaXMilHabitantes": "mean"
+        }).reset_index()
     else:
-        df = df_final[df_final["Anio"] == anio]
+        df = df_merge[df_merge["Año"] == anio]
 
-    geojson = dlx.geojson_to_geobuf(df.__geo_interface__)
-    colormap = cm.linear.Reds_09.scale(df["TasaMortalidad"].min(), df["TasaMortalidad"].max())
+    geojson = json.loads(df.to_json())
+
+    colormap = cm.linear.Reds_09.scale(df["TasaXMilHabitantes"].min(), df["TasaXMilHabitantes"].max())
     colormap.caption = "Tasa por mil habitantes"
 
     return dl.Map(
-        center=[7.0, -75.5],
-        zoom=7,
-        style={'width': '100%', 'height': '600px'},
+        center=[6.5, -75.5], zoom=7,
+        style={"width": "100%", "height": "600px"},
         children=[
             dl.TileLayer(),
             dl.Choropleth(
                 data=geojson,
-                id="choropleth-tasa",
-                colorProp="TasaMortalidad",
+                id="choropleth_tasa",
+                colorProp="TasaXMilHabitantes",
                 colorscale=colormap.colors,
                 bins=8,
                 opacity=0.8,
@@ -151,50 +194,31 @@ def update_mapa_tasa(anio):
     )
 
 
-# --------------------------
-# Callbacks Número de Defunciones
-# --------------------------
-@app.callback(Output("content-casos", "children"),
-              Input("tabs-casos", "value"))
-def render_casos(tab):
-    if tab == "mapa-casos":
-        return html.Div([
-            html.Label("Seleccione un año:"),
-            dcc.Dropdown(
-                id="anio-casos",
-                options=[{"label": str(a), "value": a} for a in sorted(df_final["Anio"].unique())],
-                value=df_final["Anio"].min()
-            ),
-            html.Div(id="mapa-casos")
-        ])
-    elif tab == "top-altos-casos":
-        top = df_final.groupby("NombreMunicipio")["NumeroCasos"].sum().nlargest(10).reset_index()
-        return dash_table.DataTable(data=top.to_dict("records"), columns=[{"name": i, "id": i} for i in top.columns])
-    elif tab == "top-bajos-casos":
-        bottom = df_final.groupby("NombreMunicipio")["NumeroCasos"].sum().nsmallest(10).reset_index()
-        return dash_table.DataTable(data=bottom.to_dict("records"), columns=[{"name": i, "id": i} for i in bottom.columns])
-
-
-@app.callback(Output("mapa-casos", "children"),
-              Input("anio-casos", "value"))
+@app.callback(
+    Output("mapa_casos", "children"),
+    Input("anio_casos", "value")
+)
 def update_mapa_casos(anio):
-    if anio is None:
-        raise PreventUpdate
+    if anio == "Todos los años":
+        df = df_merge.groupby(["NombreMunicipio", "CodigoMunicipio", "NombreRegion", "geometry"]).agg({
+            "NumeroCasos": "sum"
+        }).reset_index()
+    else:
+        df = df_merge[df_merge["Año"] == anio]
 
-    df = df_final[df_final["Anio"] == anio]
-    geojson = dlx.geojson_to_geobuf(df.__geo_interface__)
-    colormap = cm.linear.Reds_09.scale(df["NumeroCasos"].min(), df["NumeroCasos"].max())
+    geojson = json.loads(df.to_json())
+
+    colormap = cm.linear.OrRd_09.scale(df["NumeroCasos"].min(), df["NumeroCasos"].max())
     colormap.caption = "Número de defunciones"
 
     return dl.Map(
-        center=[7.0, -75.5],
-        zoom=7,
-        style={'width': '100%', 'height': '600px'},
+        center=[6.5, -75.5], zoom=7,
+        style={"width": "100%", "height": "600px"},
         children=[
             dl.TileLayer(),
             dl.Choropleth(
                 data=geojson,
-                id="choropleth-casos",
+                id="choropleth_casos",
                 colorProp="NumeroCasos",
                 colorscale=colormap.colors,
                 bins=8,
@@ -207,9 +231,53 @@ def update_mapa_casos(anio):
     )
 
 
-# --------------------------
-# Run
-# --------------------------
-if __name__ == "__main__":
-    app.run_server(debug=True)
+# ---- Gráficos ----
+@app.callback(
+    Output("plot_top10_tasa_alta", "figure"),
+    Input("anio_top_tasa_alta", "value")
+)
+def plot_top10_tasa_alta(anio):
+    df = df_merge if anio == "Todos los años" else df_merge[df_merge["Año"] == anio]
+    df = df.groupby("NombreMunicipio")["TasaXMilHabitantes"].mean().nlargest(10).reset_index()
+    return px.bar(df, x="TasaXMilHabitantes", y="NombreMunicipio", orientation="h",
+                  title="Top 10 municipios con mayor tasa de mortalidad", color="TasaXMilHabitantes")
 
+
+@app.callback(
+    Output("plot_top10_tasa_baja", "figure"),
+    Input("anio_top_tasa_baja", "value")
+)
+def plot_top10_tasa_baja(anio):
+    df = df_merge if anio == "Todos los años" else df_merge[df_merge["Año"] == anio]
+    df = df.groupby("NombreMunicipio")["TasaXMilHabitantes"].mean().nsmallest(10).reset_index()
+    return px.bar(df, x="TasaXMilHabitantes", y="NombreMunicipio", orientation="h",
+                  title="Top 10 municipios con menor tasa de mortalidad", color="TasaXMilHabitantes")
+
+
+@app.callback(
+    Output("plot_top10_casos_alto", "figure"),
+    Input("anio_top_casos_alto", "value")
+)
+def plot_top10_casos_alto(anio):
+    df = df_merge if anio == "Todos los años" else df_merge[df_merge["Año"] == anio]
+    df = df.groupby("NombreMunicipio")["NumeroCasos"].sum().nlargest(10).reset_index()
+    return px.bar(df, x="NumeroCasos", y="NombreMunicipio", orientation="h",
+                  title="Top 10 municipios con mayor número de defunciones", color="NumeroCasos")
+
+
+@app.callback(
+    Output("plot_top10_casos_bajo", "figure"),
+    Input("anio_top_casos_bajo", "value")
+)
+def plot_top10_casos_bajo(anio):
+    df = df_merge if anio == "Todos los años" else df_merge[df_merge["Año"] == anio]
+    df = df.groupby("NombreMunicipio")["NumeroCasos"].sum().nsmallest(10).reset_index()
+    return px.bar(df, x="NumeroCasos", y="NombreMunicipio", orientation="h",
+                  title="Top 10 municipios con menor número de defunciones", color="NumeroCasos")
+
+
+# =============================
+#   Lanzar app
+# =============================
+if __name__ == "__main__":
+    app.run_server(debug=True, host="0.0.0.0", port=8050)

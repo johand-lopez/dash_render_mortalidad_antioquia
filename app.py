@@ -1,12 +1,14 @@
 import dash
 from dash import dcc, html, Input, Output, dash_table
 import dash_leaflet as dl
-import dash_leaflet.express as dlx
-import branca.colormap as cm
 import pandas as pd
 import geopandas as gpd
 import plotly.express as px
-import json
+import branca.colormap as cm
+
+# =============================
+#   Mortalidad en Antioquia – Dash
+# =============================
 
 # 1. Lectura de datos
 ruta_dataset = "data/Mortalidad_General_en_el_departamento_de_Antioquia_desde_2005_20250915.csv"
@@ -155,7 +157,6 @@ def update_summary(_):
             df.append({"Variable": col, "Estadistico": k, "Valor": round(v, 2)})
     return df
 
-
 # ---- Mapas ----
 @app.callback(
     Output("mapa_tasa", "children"),
@@ -169,28 +170,25 @@ def update_mapa_tasa(anio):
     else:
         df = df_merge[df_merge["Año"] == anio]
 
-    geojson = json.loads(df.to_json())
+    geojson = df.to_json()  # ✅ usar directamente
 
-    colormap = cm.linear.Reds_09.scale(df["TasaXMilHabitantes"].min(), df["TasaXMilHabitantes"].max())
-    colormap.caption = "Tasa por mil habitantes"
+    colormap = cm.linear.YlOrRd_09.scale(df["TasaXMilHabitantes"].min(), df["TasaXMilHabitantes"].max())
 
     return dl.Map(
-        center=[6.5, -75.5], zoom=7,
-        style={"width": "100%", "height": "600px"},
         children=[
             dl.TileLayer(),
             dl.Choropleth(
-                data=geojson,
                 id="choropleth_tasa",
-                colorProp="TasaXMilHabitantes",
-                colorscale=colormap.colors,
-                bins=8,
-                opacity=0.8,
-                weight=1,
-                fillOpacity=0.7
+                data=geojson,
+                value="TasaXMilHabitantes",
+                colorScale=colormap.colors,
+                style={"fillOpacity": 0.7, "weight": 0.5},
+                hoverStyle={"color": "black", "weight": 2, "dashArray": "5, 5"},
             ),
-            dl.LayerGroup(children=[dlx.colorbar.create(color=colormap)])
-        ]
+            dl.Colorbar(colorscale=colormap.colors, width=20, height=150, position="bottomright")
+        ],
+        style={"width": "100%", "height": "600px"},
+        center=[6.5, -75.5], zoom=7
     )
 
 
@@ -206,32 +204,28 @@ def update_mapa_casos(anio):
     else:
         df = df_merge[df_merge["Año"] == anio]
 
-    geojson = json.loads(df.to_json())
+    geojson = df.to_json()  # ✅ usar directamente
 
-    colormap = cm.linear.OrRd_09.scale(df["NumeroCasos"].min(), df["NumeroCasos"].max())
-    colormap.caption = "Número de defunciones"
+    colormap = cm.linear.Blues_09.scale(df["NumeroCasos"].min(), df["NumeroCasos"].max())
 
     return dl.Map(
-        center=[6.5, -75.5], zoom=7,
-        style={"width": "100%", "height": "600px"},
         children=[
             dl.TileLayer(),
             dl.Choropleth(
-                data=geojson,
                 id="choropleth_casos",
-                colorProp="NumeroCasos",
-                colorscale=colormap.colors,
-                bins=8,
-                opacity=0.8,
-                weight=1,
-                fillOpacity=0.7
+                data=geojson,
+                value="NumeroCasos",
+                colorScale=colormap.colors,
+                style={"fillOpacity": 0.7, "weight": 0.5},
+                hoverStyle={"color": "black", "weight": 2, "dashArray": "5, 5"},
             ),
-            dl.LayerGroup(children=[dlx.colorbar.create(color=colormap)])
-        ]
+            dl.Colorbar(colorscale=colormap.colors, width=20, height=150, position="bottomright")
+        ],
+        style={"width": "100%", "height": "600px"},
+        center=[6.5, -75.5], zoom=7
     )
 
-
-# ---- Gráficos ----
+# ---- Gráficos Tasa ----
 @app.callback(
     Output("plot_top10_tasa_alta", "figure"),
     Input("anio_top_tasa_alta", "value")
@@ -241,7 +235,6 @@ def plot_top10_tasa_alta(anio):
     df = df.groupby("NombreMunicipio")["TasaXMilHabitantes"].mean().nlargest(10).reset_index()
     return px.bar(df, x="TasaXMilHabitantes", y="NombreMunicipio", orientation="h",
                   title="Top 10 municipios con mayor tasa de mortalidad", color="TasaXMilHabitantes")
-
 
 @app.callback(
     Output("plot_top10_tasa_baja", "figure"),
@@ -253,7 +246,7 @@ def plot_top10_tasa_baja(anio):
     return px.bar(df, x="TasaXMilHabitantes", y="NombreMunicipio", orientation="h",
                   title="Top 10 municipios con menor tasa de mortalidad", color="TasaXMilHabitantes")
 
-
+# ---- Gráficos Casos ----
 @app.callback(
     Output("plot_top10_casos_alto", "figure"),
     Input("anio_top_casos_alto", "value")
@@ -264,7 +257,6 @@ def plot_top10_casos_alto(anio):
     return px.bar(df, x="NumeroCasos", y="NombreMunicipio", orientation="h",
                   title="Top 10 municipios con mayor número de defunciones", color="NumeroCasos")
 
-
 @app.callback(
     Output("plot_top10_casos_bajo", "figure"),
     Input("anio_top_casos_bajo", "value")
@@ -274,7 +266,6 @@ def plot_top10_casos_bajo(anio):
     df = df.groupby("NombreMunicipio")["NumeroCasos"].sum().nsmallest(10).reset_index()
     return px.bar(df, x="NumeroCasos", y="NombreMunicipio", orientation="h",
                   title="Top 10 municipios con menor número de defunciones", color="NumeroCasos")
-
 
 # =============================
 #   Lanzar app

@@ -15,11 +15,27 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
 # -----------------------------------------------------------
-# Lectura de datos (ajusta tu ruta o conexión según Render)
+# Lectura de datos (igual que en tu código original)
 # -----------------------------------------------------------
-df_merge = gpd.read_file("datos/mortalidad_antioquia.geojson")  
-# Asegúrate de que df_merge tenga columnas: 
-# NombreMunicipio, CodigoMunicipio, NombreRegion, Año, NumeroCasos, TasaXMilHabitantes, geometry
+# Dataset de mortalidad
+dataset_final = pd.read_csv("datos/Mortalidad_General_en_el_departamento_de_Antioquia.csv")
+
+# Convertir el código de municipio a string para merge
+dataset_final["CodigoMunicipio"] = dataset_final["CodigoMunicipio"].astype(str)
+
+# Shapefile de municipios
+shapefile = gpd.read_file("datos/MGN2021_MPIO_POLITICO/MGN_MPIO_POLITICO.shp")
+
+# Hacer merge con geopandas
+df_merge = shapefile.merge(
+    dataset_final,
+    left_on="MPIO_CCDGO",
+    right_on="CodigoMunicipio",
+    how="left"
+)
+
+# Asegurar que es un GeoDataFrame válido
+df_merge = gpd.GeoDataFrame(df_merge, geometry="geometry", crs="EPSG:4326")
 
 # -----------------------------------------------------------
 # Layout
@@ -32,7 +48,7 @@ app.layout = dbc.Container([
             html.Label("Seleccione el año (Tasa por mil)"),
             dcc.Dropdown(
                 id="anio_tasa",
-                options=[{"label": str(anio), "value": anio} for anio in sorted(df_merge["Año"].unique())] +
+                options=[{"label": str(anio), "value": anio} for anio in sorted(dataset_final["Año"].unique())] +
                         [{"label": "Todos los años", "value": "Todos los años"}],
                 value="Todos los años"
             ),
@@ -43,7 +59,7 @@ app.layout = dbc.Container([
             html.Label("Seleccione el año (Número de casos)"),
             dcc.Dropdown(
                 id="anio_casos",
-                options=[{"label": str(anio), "value": anio} for anio in sorted(df_merge["Año"].unique())] +
+                options=[{"label": str(anio), "value": anio} for anio in sorted(dataset_final["Año"].unique())] +
                         [{"label": "Todos los años", "value": "Todos los años"}],
                 value="Todos los años"
             ),
@@ -67,7 +83,6 @@ def update_mapa_tasa(anio):
     else:
         df = df_merge[df_merge["Año"] == anio]
 
-    # Asegurar que sea GeoDataFrame
     df = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
     geojson = json.loads(df.to_json())
 
@@ -124,7 +139,6 @@ def update_mapa_casos(anio):
     else:
         df = df_merge[df_merge["Año"] == anio]
 
-    # Asegurar que sea GeoDataFrame
     df = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:4326")
     geojson = json.loads(df.to_json())
 
